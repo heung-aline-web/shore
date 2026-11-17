@@ -79,7 +79,7 @@ tr.err td{background:var(--bad-soft);color:var(--bad)}
 <div class="wrap">
   <div>
     <h1>ทำชอร์ ส่งตู้เข้าท่า</h1>
-    <p class="sub">เลือกท่า กรอกข้อมูล แล้วดาวน์โหลดไฟล์ Excel ของฟอร์มท่านั้น (30 ตู้) หรือ PDF (ฟอร์ม A2 ส่งอีเมลไปที่ท่าได้)</p>
+    <p class="sub">แต่ละท่าเก็บข้อมูลแยกกัน · เลือกท่า กรอกข้อมูล แล้วดาวน์โหลดไฟล์ Excel ของฟอร์มท่านั้น (30 ตู้) หรือ PDF (ฟอร์ม A2 ส่งอีเมลไปที่ท่าได้)</p>
   </div>
 
   <div class="tabs" role="tablist" id="tabs"></div>
@@ -174,6 +174,10 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let st = {form:'B3'}; FIELDS.forEach(f=>st[f]='');
 try{ Object.assign(st, JSON.parse(localStorage.getItem(LS)||'{}')); }catch(e){}
+/* each terminal keeps its own entries: st.by[form] holds that tab's fields; st[field] is the open tab's copy */
+if(!st.by){ st.by = {}; st.by[st.form] = Object.fromEntries(FIELDS.map(f=>[f, st[f]||''])); }
+Object.keys(FORMS).forEach(k=>{ st.by[k] = st.by[k] || {}; });
+FIELDS.forEach(f=>{ st[f] = st.by[st.form][f] || ''; });
 const save = () => { try{ localStorage.setItem(LS, JSON.stringify(st)); }catch(e){} };
 
 const TYPE_ALIAS = {DV:'GP',DC:'GP',GP:'GP',HC:'HC',HQ:'HC',H:'HC',RF:'RF',RE:'RF',RH:'RH',RQ:'RH',FR:'FR',OT:'OT',TK:'TK',PF:'FR',FL:'FR'};
@@ -224,8 +228,13 @@ function parse(){
 function drawTabs(){
   $('tabs').innerHTML = Object.entries(FORMS).map(([k,f])=>`<button class="tab" role="tab" type="button" aria-selected="${st.form===k}" data-f="${k}"><b>SHORE ${k}</b><span>${f.full}</span></button>`).join('');
 }
-$('tabs').addEventListener('click', e=>{ const b=e.target.closest('.tab'); if(!b) return; st.form=b.dataset.f; save(); drawTabs(); draw(); });
-FIELDS.forEach(f=>{ $(f).value = st[f]||''; $(f).addEventListener('input', ()=>{ st[f]=$(f).value; save(); draw(); }); });
+$('tabs').addEventListener('click', e=>{
+  const b=e.target.closest('.tab'); if(!b) return;
+  st.form=b.dataset.f;
+  FIELDS.forEach(f=>{ st[f] = st.by[st.form][f] || ''; $(f).value = st[f]; });
+  save(); drawTabs(); draw();
+});
+FIELDS.forEach(f=>{ $(f).value = st[f]||''; $(f).addEventListener('input', ()=>{ st[f]=$(f).value; st.by[st.form][f]=st[f]; save(); draw(); }); });
 $('frm').addEventListener('submit', e=>e.preventDefault());
 
 /* ---------- preview: each terminal's own form, filled the same way as the Excel file ---------- */
@@ -372,7 +381,8 @@ $('clear').addEventListener('click', ()=>{
   }
   clearArm = false; $('clear').textContent = 'ล้างฟอร์ม';
   FIELDS.forEach(f=>{ st[f] = ''; $(f).value = ''; });
-  save(); draw(); toast('ล้างฟอร์มแล้ว');
+  st.by[st.form] = {};
+  save(); draw(); toast(`ล้างฟอร์ม SHORE ${st.form} แล้ว`);
 });
 
 function subject(rows){
