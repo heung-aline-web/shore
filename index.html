@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 /* Layout: terminal tabs, then input fields on the left and the 30-row preview with download / e-mail on the right; stacks on phones */
 :root{
@@ -70,14 +72,13 @@ tr.err td{background:var(--bad-soft);color:var(--bad)}
 /* the paper keeps its printed look in both themes */
 .paper{background:#fff;color:#111;margin:0 auto;padding:24px 22px;box-shadow:0 1px 4px rgba(0,0,0,.25);width:max-content;color-scheme:light}
 </style>
-
 <style>body{margin:0}</style>
 </head>
 <body>
 <div class="wrap">
   <div>
     <h1>ทำชอร์ ส่งตู้เข้าท่า</h1>
-    <p class="sub">เลือกท่า กรอกข้อมูล แล้วดาวน์โหลดไฟล์ Excel ของฟอร์มท่านั้น (30 ตู้) และส่งอีเมลไปที่ท่า</p>
+    <p class="sub">เลือกท่า กรอกข้อมูล แล้วดาวน์โหลดไฟล์ Excel ของฟอร์มท่านั้น (30 ตู้) หรือ PDF (ฟอร์ม A2 ส่งอีเมลไปที่ท่าได้)</p>
   </div>
 
   <div class="tabs" role="tablist" id="tabs"></div>
@@ -106,11 +107,12 @@ tr.err td{background:var(--bad-soft);color:var(--bad)}
       <div class="chips" id="chips"></div>
       <div class="actions">
         <button class="btn pri" id="dl" type="button">ดาวน์โหลด Excel</button>
+        <button class="btn" id="pdfBtn" type="button">ดาวน์โหลด PDF</button>
         <button class="btn" id="mailBtn" type="button">ส่งอีเมล (แนบ Excel)</button>
         <span class="toast" id="toast" role="status" aria-live="polite"></span>
       </div>
-      <div class="mail">ส่งถึง <code id="to"></code><button class="linkbtn" id="cpTo" type="button">คัดลอกอีเมล</button><a class="linkbtn" id="mailPlain" href="#" target="_blank" rel="noopener">เปิดอีเมลแบบไม่แนบไฟล์</a></div>
-      <p class="hint" id="mailHint"></p>
+      <div id="mailBox"><div class="mail">ส่งถึง <code id="to"></code><button class="linkbtn" id="cpTo" type="button">คัดลอกอีเมล</button><a class="linkbtn" id="mailPlain" href="#" target="_blank" rel="noopener">เปิดอีเมลแบบไม่แนบไฟล์</a></div>
+      <p class="hint" id="mailHint"></p></div>
       <p class="errs" id="errs" hidden></p>
       <div class="paperwrap"><div class="paper" id="paper"></div></div>
     </section>
@@ -157,13 +159,13 @@ function fillWorkbook(wb, form, d){
   if(form==='B5'){ set('E4', vsl); set('J4', voy); set('D11', c[20]||''); set('G11', c[40]||''); set('J11', c[45]||''); if(nm||tel) set('F47', `ชื่อ  ${nm}   เบอร์โทร  ${tel}`); }
   return wb;
 }
-
+/* SHORE_FILL_END */
 const MAX = 30;
 const FORMS = {
-  A0:{full:'LCB1 / LCMT', to:'documentation@lcb1.com;doc-group@lcb1.com'},
+  A0:{full:'LCB1 / LCMT'},
   A2:{full:'Hutchison (HPT)', to:'ops.export@hutchisonports.co.th'},
-  B3:{full:'ESCO B3', to:'lcbdocs@esco.co.th'},
-  B5:{full:'LCIT C3 / B5', to:'Auto-PreAdvise@lcit.com'},
+  B3:{full:'ESCO B3'},
+  B5:{full:'LCIT C3 / B5'},
 };
 const FIELDS = ['cn','vsl','temp','vent','rmk','pod','shp','nm','tel'];
 const LS = 'heunga_shore30_v1';
@@ -393,9 +395,11 @@ function draw(){
   $('errs').hidden = !msgs.length;
   $('errs').textContent = msgs.join('  ·  ');
   $('paper').innerHTML = RENDER[st.form](rows.slice(0, MAX), c);
-  const to = FORMS[st.form].to;
+  const to = FORMS[st.form].to || '';
+  $('mailBox').hidden = $('mailBtn').hidden = !to;
   $('to').textContent = to;
-  $('mailPlain').href = `mailto:${to}?subject=${encodeURIComponent(subject(rows))}&body=${encodeURIComponent(mailBody(rows))}`;
+  $('pdfBtn').textContent = `ดาวน์โหลด PDF SHORE ${st.form}`;
+  if(to) $('mailPlain').href = `mailto:${to}?subject=${encodeURIComponent(subject(rows))}&body=${encodeURIComponent(mailBody(rows))}`;
   $('dl').textContent = `ดาวน์โหลด Excel SHORE ${st.form}`;
   if(typeof scheduleCache === 'function') scheduleCache();
 }
@@ -456,7 +460,7 @@ async function buildEml(rows, name, blob){
 let cache = {key:'', file:null}, cacheTimer = null;
 const stateKey = () => JSON.stringify([st.form, ...FIELDS.map(f=>st[f])]);
 function scheduleCache(){
-  if(inClaude || !isMobile) return;
+  if(inClaude || !isMobile || !FORMS[st.form].to) return;
   clearTimeout(cacheTimer);
   cacheTimer = setTimeout(async ()=>{
     const {rows} = parse(); if(!rows.length || !window.ExcelJS) return;
@@ -473,6 +477,7 @@ $('mailHint').textContent = inClaude
 $('mailBtn').addEventListener('click', async ()=>{
   const {rows} = parse();
   const to = FORMS[st.form].to;
+  if(!to) return;
   if(inClaude){ $('mailPlain').click(); return; }
   if(!rows.length){ toast('ใส่เลขตู้ก่อน', true); return; }
   if(!window.ExcelJS){ toast('โหลดตัวสร้างไฟล์ Excel ไม่สำเร็จ ลองรีเฟรชหน้า', true); return; }
@@ -517,13 +522,47 @@ $('dl').addEventListener('click', async ()=>{
     else toast('สร้างไฟล์ไม่สำเร็จ: ' + (e?.message || e?.code || e), true);
   }
 });
+/* PDF = a picture of the form preview, fitted onto one A4 page */
+$('pdfBtn').addEventListener('click', async ()=>{
+  const {rows} = parse();
+  if(!rows.length){ toast('ใส่เลขตู้ก่อน', true); return; }
+  if(inClaude && !downloads){ toast('ดาวน์โหลดไม่ได้ในมุมมองนี้', true); return; }
+  if(!window.html2canvas || !window.jspdf){ toast('โหลดตัวสร้าง PDF ไม่สำเร็จ ลองรีเฟรชหน้า', true); return; }
+  const btn = $('pdfBtn'); btn.disabled = true;
+  try{
+    if(document.fonts && document.fonts.ready) await document.fonts.ready;
+    /* capture a full-size copy outside the scrolling preview box, so nothing is clipped */
+    const host = document.createElement('div');
+    host.style.cssText = 'position:absolute;left:0;top:0;z-index:-1;pointer-events:none;background:#fff';
+    const el = $('paper').cloneNode(true); el.removeAttribute('id'); el.style.boxShadow = 'none'; el.style.margin = '0';
+    host.appendChild(el); document.body.appendChild(host);
+    let canvas;
+    try{ canvas = await html2canvas(el, {scale:2, backgroundColor:'#ffffff', scrollX:-window.scrollX, scrollY:-window.scrollY, windowWidth:Math.max(document.documentElement.clientWidth, el.scrollWidth + 40)}); }
+    finally{ host.remove(); }
+    const land = canvas.width > canvas.height * 1.1;
+    const pdf = new jspdf.jsPDF({orientation: land ? 'landscape' : 'portrait', unit:'mm', format:'a4'});
+    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight(), m = 6;
+    const k = Math.min((pw - 2*m) / canvas.width, (ph - 2*m) / canvas.height);
+    const w = canvas.width * k, h = canvas.height * k;
+    pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', (pw - w) / 2, m, w, h);
+    const blob = pdf.output('blob');
+    const {vsl, voy} = splitVessel(st.vsl);
+    const name = ['SHORE', st.form, vsl, voy].filter(Boolean).join('_').replace(/[^A-Z0-9_\-]+/gi,'_') + '.pdf';
+    if(inClaude) await downloads.save({filename: name, data: blob});
+    else browserSave(name, blob);
+    toast(`บันทึก ${name} แล้ว`);
+  }catch(e){
+    if(e && e.code==='declined') toast('ยกเลิกการดาวน์โหลด', true);
+    else toast('สร้าง PDF ไม่สำเร็จ: ' + (e?.message || e?.code || e), true);
+  }finally{ btn.disabled = false; }
+});
 $('cpTo').addEventListener('click', async ()=>{
+  if(!FORMS[st.form].to) return;
   try{ await navigator.clipboard.writeText(FORMS[st.form].to); toast('คัดลอกอีเมลแล้ว'); }
   catch(e){ const r=document.createRange(); r.selectNodeContents($('to')); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toast('เลือกอีเมลไว้แล้ว กด Ctrl+C', true); }
 });
 
 drawTabs(); draw();
 </script>
-
 </body>
 </html>
