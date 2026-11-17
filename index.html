@@ -180,14 +180,15 @@ function parseSize(rest){
   if(sm){
     size = {22:'20',42:'40',L5:'45'}[sm[1]] || sm[1];
     if(sm[2]) type = TYPE_ALIAS[sm[2]] || TYPE_ALIAS[sm[2][0]] || '';
-    if(/^(22|42|45|L5)G/.test(sm[0].replace(/[\s']/g,''))) type = (size==='45') ? 'HC' : 'GP';
+    if(/\b(22|42|45|L5)G\d/.test(rest)) type = (size==='45') ? 'HC' : 'GP';   /* ISO codes such as 22G1 / 45G1; a typed "45GP" stays GP */
   }
   if(!type){ const tm = rest.match(/\b(DV|DC|GP|HC|HQ|RF|RE|RH|FR|OT|TK)\b/); if(tm) type = TYPE_ALIAS[tm[1]]; }
   if(!type && size) type = size==='45' ? 'HC' : 'GP';
   return {size, type};
 }
 function parse(){
-  let curBk = '';
+  /* a line with only a booking or only a size (e.g. "BOOK HASLS..." then "45GP") applies to the containers listed under it */
+  let curBk = '', curSize = '', curType = '';
   const out = [];
   st.cn.split(/\r?\n/).map(s=>s.trim()).filter(Boolean).forEach(line=>{
     let u = ' ' + line.toUpperCase().replace(/[’`]/g,"'") + ' ';
@@ -196,10 +197,16 @@ function parse(){
     if(cm){ cn = cm[1]+cm[2]+cm[3]; u = u.replace(cm[0], ' '); }
     const bm = u.match(/\b([A-Z]{2,6}\d{6,14})\b/);
     if(bm){ curBk = bm[1]; u = u.replace(bm[0], ' '); }
-    if(!cn){ if(!bm) out.push({err:line}); return; }
-    const {size,type} = parseSize(u);
-    out.push({cn, bk:curBk, size, type});
+    const {size, type} = parseSize(u);
+    if(!cn){
+      if(bm){ curSize = size; curType = type; return; }
+      if(size){ curSize = size; curType = type; return; }
+      out.push({err:line}); return;
+    }
+    out.push({cn, bk:curBk, size: size || curSize, type: size ? type : curType});
   });
+  const seen = {};
+  out.forEach(r=>{ if(r.cn){ if(seen[r.cn]) r.dup = true; seen[r.cn] = true; } });
   const rows = out.filter(r=>!r.err);
   const anyReef = rows.some(r=>r.type==='RF'||r.type==='RH');
   rows.forEach(r=>{
@@ -377,9 +384,14 @@ function draw(){
     + (errs?`<span class="chip bad">อ่านไม่ได้ ${errs} บรรทัด</span>`:'')
     + (nobk?`<span class="chip bad">ไม่มี booking ${nobk} ตู้</span>`:'')
     + (nosz?`<span class="chip bad">ไม่มีขนาด ${nosz} ตู้</span>`:'');
+  const dups = [...new Set(rows.filter(r=>r.dup).map(r=>r.cn))];
+  if(dups.length) $('chips').innerHTML += `<span class="chip bad">เลขตู้ซ้ำ ${dups.length} ตู้</span>`;
   const bad = all.filter(r=>r.err).map(r=>r.err);
-  $('errs').hidden = !bad.length;
-  $('errs').textContent = bad.length ? 'อ่านเลขตู้ไม่ได้: ' + bad.join(' | ') : '';
+  const msgs = [];
+  if(bad.length) msgs.push('อ่านเลขตู้ไม่ได้: ' + bad.join(' | '));
+  if(dups.length) msgs.push('เลขตู้ซ้ำ (ใส่มากกว่า 1 ครั้ง): ' + dups.join(', '));
+  $('errs').hidden = !msgs.length;
+  $('errs').textContent = msgs.join('  ·  ');
   $('paper').innerHTML = RENDER[st.form](rows.slice(0, MAX), c);
   const to = FORMS[st.form].to;
   $('to').textContent = to;
