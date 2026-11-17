@@ -524,31 +524,55 @@ $('dl').addEventListener('click', async ()=>{
   }
 });
 /* PDF = a picture of the form preview, fitted onto one A4 page */
+async function buildPdf(){
+  if(document.fonts && document.fonts.ready) await document.fonts.ready;
+  /* capture a full-size copy outside the scrolling preview box, so nothing is clipped */
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute;left:0;top:0;z-index:-1;pointer-events:none;background:#fff';
+  const el = $('paper').cloneNode(true); el.removeAttribute('id'); el.style.boxShadow = 'none'; el.style.margin = '0';
+  host.appendChild(el); document.body.appendChild(host);
+  let canvas;
+  try{ canvas = await html2canvas(el, {scale:2, backgroundColor:'#ffffff', scrollX:-window.scrollX, scrollY:-window.scrollY, windowWidth:Math.max(document.documentElement.clientWidth, el.scrollWidth + 40)}); }
+  finally{ host.remove(); }
+  const land = canvas.width > canvas.height * 1.1;
+  const pdf = new jspdf.jsPDF({orientation: land ? 'landscape' : 'portrait', unit:'mm', format:'a4'});
+  const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight(), m = 6;
+  const k = Math.min((pw - 2*m) / canvas.width, (ph - 2*m) / canvas.height);
+  const w = canvas.width * k, h = canvas.height * k;
+  pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', (pw - w) / 2, m, w, h);
+  const {vsl, voy} = splitVessel(st.vsl);
+  const name = ['SHORE', st.form, vsl, voy].filter(Boolean).join('_').replace(/[^A-Z0-9_\-]+/gi,'_') + '.pdf';
+  return {name, blob: pdf.output('blob')};
+}
+/* phones save through the share sheet (Save to Files / Drive / LINE); if the phone wants a fresh tap, the ready file is shared on the next tap */
+let pdfCache = {key:'', file:null};
+const phoneShare = () => !inClaude && isMobile && !!navigator.canShare;
+async function sharePdf(file){
+  try{ await navigator.share({files:[file], title:file.name}); toast(`ส่งออก ${file.name} แล้ว`); return true; }
+  catch(e){
+    if(e && e.name === 'AbortError') return true;
+    if(e && e.name === 'NotAllowedError'){ toast('PDF พร้อมแล้ว กดปุ่มดาวน์โหลด PDF อีกครั้ง'); return true; }
+    return false;
+  }
+}
 $('pdfBtn').addEventListener('click', async ()=>{
   const {rows} = parse();
   if(!rows.length){ toast('ใส่เลขตู้ก่อน', true); return; }
   if(inClaude && !downloads){ toast('ดาวน์โหลดไม่ได้ในมุมมองนี้', true); return; }
+  const key = stateKey();
+  if(phoneShare() && pdfCache.key === key && await sharePdf(pdfCache.file)) return;
   if(!window.html2canvas || !window.jspdf){ toast('โหลดตัวสร้าง PDF ไม่สำเร็จ ลองรีเฟรชหน้า', true); return; }
-  const btn = $('pdfBtn'); btn.disabled = true;
+  const btn = $('pdfBtn'); btn.disabled = true; toast('กำลังสร้าง PDF...');
   try{
-    if(document.fonts && document.fonts.ready) await document.fonts.ready;
-    /* capture a full-size copy outside the scrolling preview box, so nothing is clipped */
-    const host = document.createElement('div');
-    host.style.cssText = 'position:absolute;left:0;top:0;z-index:-1;pointer-events:none;background:#fff';
-    const el = $('paper').cloneNode(true); el.removeAttribute('id'); el.style.boxShadow = 'none'; el.style.margin = '0';
-    host.appendChild(el); document.body.appendChild(host);
-    let canvas;
-    try{ canvas = await html2canvas(el, {scale:2, backgroundColor:'#ffffff', scrollX:-window.scrollX, scrollY:-window.scrollY, windowWidth:Math.max(document.documentElement.clientWidth, el.scrollWidth + 40)}); }
-    finally{ host.remove(); }
-    const land = canvas.width > canvas.height * 1.1;
-    const pdf = new jspdf.jsPDF({orientation: land ? 'landscape' : 'portrait', unit:'mm', format:'a4'});
-    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight(), m = 6;
-    const k = Math.min((pw - 2*m) / canvas.width, (ph - 2*m) / canvas.height);
-    const w = canvas.width * k, h = canvas.height * k;
-    pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', (pw - w) / 2, m, w, h);
-    const blob = pdf.output('blob');
-    const {vsl, voy} = splitVessel(st.vsl);
-    const name = ['SHORE', st.form, vsl, voy].filter(Boolean).join('_').replace(/[^A-Z0-9_\-]+/gi,'_') + '.pdf';
+    const {name, blob} = await buildPdf();
+    if(phoneShare()){
+      const file = new File([blob], name, {type:'application/pdf'});
+      if(navigator.canShare({files:[file]})){
+        pdfCache = {key, file};
+        btn.disabled = false;
+        if(await sharePdf(file)) return;
+      }
+    }
     if(inClaude) await downloads.save({filename: name, data: blob});
     else browserSave(name, blob);
     toast(`บันทึก ${name} แล้ว`);
@@ -557,6 +581,10 @@ $('pdfBtn').addEventListener('click', async ()=>{
     else toast('สร้าง PDF ไม่สำเร็จ: ' + (e?.message || e?.code || e), true);
   }finally{ btn.disabled = false; }
 });
+/* LINE's built-in browser cannot save files: reopen the page in the phone's own browser */
+if(/\bLine\//.test(navigator.userAgent) && !/openExternalBrowser=1/.test(location.search)){
+  location.replace(location.pathname + (location.search ? location.search + '&' : '?') + 'openExternalBrowser=1' + location.hash);
+}
 $('cpTo').addEventListener('click', async ()=>{
   if(!FORMS[st.form].to) return;
   try{ await navigator.clipboard.writeText(FORMS[st.form].to); toast('คัดลอกอีเมลแล้ว'); }
