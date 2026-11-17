@@ -383,7 +383,7 @@ function draw(){
   $('paper').innerHTML = RENDER[st.form](rows.slice(0, MAX), c);
   const to = FORMS[st.form].to;
   $('to').textContent = to;
-  $('mailPlain').href = `mailto:${to}?subject=${encodeURIComponent(subject(rows))}`;
+  $('mailPlain').href = `mailto:${to}?subject=${encodeURIComponent(subject(rows))}&body=${encodeURIComponent(mailBody(rows))}`;
   $('dl').textContent = `ดาวน์โหลด Excel SHORE ${st.form}`;
   if(typeof scheduleCache === 'function') scheduleCache();
 }
@@ -420,7 +420,7 @@ async function buildExcel(rows){
 function mailBody(rows){
   const {vsl, voy} = splitVessel(st.vsl);
   const bks = [...new Set(rows.map(r=>r.bk).filter(Boolean))];
-  return ['Dear Documentation Team,', '', `Please find attached SHORE ${st.form} request.`,
+  return ['Dear Documentation Team,', '', 'แจ้งชอร์นอกเวลาทำการ หากเกิดค่าใช้จ่ายใดๆ ลูกค้าเป็นคนรับผิดชอบทั้งหมด', '', `Please find attached SHORE ${st.form} request.`,
     `Vessel: ${[vsl, voy?'V.'+voy:''].filter(Boolean).join(' ')}`, `Booking: ${bks.join(', ')}`, `Containers: ${Math.min(rows.length, MAX)}`,
     '', 'Best regards,', [st.nm.trim(), st.tel.trim()].filter(Boolean).join('  '), 'Heung-A Line (Thailand) Co., Ltd.'].join('\r\n');
 }
