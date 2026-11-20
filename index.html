@@ -567,8 +567,7 @@ async function sharePdf(file){
   }
 }
 $('pdfBtn').addEventListener('click', async ()=>{
-  const {rows} = parse();
-  if(!rows.length){ toast('ใส่เลขตู้ก่อน', true); return; }
+  /* no data needed: an empty tab gives a blank form */
   if(inClaude && !downloads){ toast('ดาวน์โหลดไม่ได้ในมุมมองนี้', true); return; }
   const key = stateKey();
   if(phoneShare() && pdfCache.key === key && await sharePdf(pdfCache.file)) return;
